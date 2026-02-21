@@ -233,6 +233,12 @@ export class WhatsAppChannel implements Channel {
     return jid.endsWith('@g.us') || jid.endsWith('@s.whatsapp.net');
   }
 
+  defaultJid(): string | undefined {
+    if (!this.sock?.user) return undefined;
+    const phoneUser = this.sock.user.id.split(':')[0];
+    return `${phoneUser}@s.whatsapp.net`;
+  }
+
   async disconnect(): Promise<void> {
     this.connected = false;
     this.sock?.end(undefined);

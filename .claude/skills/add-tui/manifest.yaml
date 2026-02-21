@@ -1,0 +1,35 @@
+skill: tui
+version: 1.0.0
+description: "Terminal UI channel with multi-channel switching via pi-tui"
+core_version: 0.1.0
+adds:
+  - src/channels/tui.ts
+  - src/channels/tui.test.ts
+  - src/tui/tui-app.ts
+  - src/tui/tui-adapter.ts
+  - src/tui/channel-bar.ts
+  - src/tui/theme.ts
+  - src/tui/syntax-theme.ts
+  - src/tui/components/chat-log.ts
+  - src/tui/components/assistant-message.ts
+  - src/tui/components/user-message.ts
+  - src/tui/components/custom-editor.ts
+  - scripts/tui.ts
+modifies:
+  - src/index.ts
+  - src/config.ts
+  - src/logger.ts
+  - src/types.ts
+structured:
+  npm_dependencies:
+    "@mariozechner/pi-tui": "0.54.0"
+    chalk: "^5.3.0"
+    cli-highlight: "^2.1.11"
+  env_additions:
+    - TUI_ENABLED
+    - TUI_GROUP_FOLDER
+  npm_scripts:
+    tui: "tsx scripts/tui.ts"
+conflicts: []
+depends: []
+test: "npx vitest run src/channels/tui.test.ts"
