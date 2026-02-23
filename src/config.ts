@@ -74,3 +74,23 @@ export const TUI_ENABLED =
   (process.env.TUI_ENABLED || envConfig.TUI_ENABLED) === 'true';
 export const TUI_GROUP_FOLDER =
   process.env.TUI_GROUP_FOLDER || envConfig.TUI_GROUP_FOLDER || 'main';
+
+// Model configuration
+export const DEFAULT_MODEL = 'claude-sonnet-4-6';
+
+/** Maps user-friendly short names to SDK model IDs. */
+export const MODEL_SHORT_NAMES: Record<string, string> = {
+  'sonnet-4': 'claude-sonnet-4-6',
+  'opus-4': 'claude-opus-4-6',
+  'haiku-4.5': 'claude-haiku-4-5-20251001',
+  'sonnet': 'claude-sonnet-4-6',
+  'opus': 'claude-opus-4-6',
+  'haiku': 'claude-haiku-4-5-20251001',
+};
+
+/** Maps SDK model IDs to short display names for the status line. */
+export const MODEL_DISPLAY_NAMES: Record<string, string> = {
+  'claude-sonnet-4-6': 'sonnet-4',
+  'claude-opus-4-6': 'opus-4',
+  'claude-haiku-4-5-20251001': 'haiku-4.5',
+};

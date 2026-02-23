@@ -1,5 +1,16 @@
-import { ASSISTANT_NAME } from '../config.js';
+import {
+  ASSISTANT_NAME,
+  DEFAULT_MODEL,
+  MODEL_DISPLAY_NAMES,
+  MODEL_SHORT_NAMES,
+} from '../config.js';
 import type { ChatInfo } from '../db.js';
+import {
+  deleteSession,
+  getModelConfig,
+  getRecentMessages,
+  setModelConfig,
+} from '../db.js';
 import { logger } from '../logger.js';
 import type {
   Channel,
@@ -15,6 +26,8 @@ export interface TuiChannelOpts {
   registeredGroups: () => Record<string, RegisteredGroup>;
   /** All known chats (for JID lookup when no registered group matches). */
   allChats?: () => ChatInfo[];
+  /** Called when /clear resets the session. Receives groupFolder so host can clear in-memory state. */
+  onSessionClear?: (groupFolder: string) => void;
 }
 
 /**
@@ -32,6 +45,10 @@ export class TuiChannel implements Channel {
   private readonly jid = 'tui:local';
   /** External channels indexed by display name (e.g., 'WA' -> WhatsAppChannel). */
   private externalChannels = new Map<string, Channel>();
+  /** Cumulative token counts for the current session (reset on /clear). */
+  private cumulativeTokens = { input: 0, output: 0 };
+  /** Oldest message timestamp loaded in history (for PageUp pagination). */
+  private oldestLoadedTimestamp: string | undefined;
 
   constructor(opts: TuiChannelOpts) {
     this.opts = opts;
@@ -65,6 +82,12 @@ export class TuiChannel implements Channel {
           this.sendToExternalChannel(activeChannel, text);
         }
       },
+      onSlashCommand: (command: string, args: string) => {
+        this.handleSlashCommand(command, args);
+      },
+      onPageUp: () => {
+        this.loadMoreHistory();
+      },
       onExit: () => {
         this.disconnect();
         process.exit(0);
@@ -75,6 +98,16 @@ export class TuiChannel implements Channel {
     this.connected = true;
 
     logger.info('TUI channel connected');
+
+    // Show initial model in status
+    const groupFolder = this.getGroupFolder();
+    const modelId = (groupFolder ? getModelConfig(groupFolder) : undefined) ?? DEFAULT_MODEL;
+    const displayModel = MODEL_DISPLAY_NAMES[modelId] ?? modelId;
+    this.app.updateStatus({ model: displayModel });
+
+    // Load initial history
+    this.loadInitialHistory();
+
     this.app.adapter.renderSystemMessage(
       'TUI',
       `${ASSISTANT_NAME} TUI ready. Type a message and press Enter.`,
@@ -226,6 +259,156 @@ export class TuiChannel implements Channel {
     const display = TuiChannel.channelDisplayName(channelName);
     this.app.adapter.renderAssistantMessage(display, text);
     this.app.tui.requestRender();
+  }
+
+  // --- Slash commands ---
+
+  private handleSlashCommand(command: string, args: string) {
+    switch (command) {
+      case 'clear':
+        this.handleClear();
+        break;
+      case 'model':
+        this.handleModel(args);
+        break;
+      default:
+        this.app?.adapter.renderSystemMessage('TUI', `Unknown command: /${command}`);
+        this.app?.tui.requestRender();
+        break;
+    }
+  }
+
+  private handleClear() {
+    const groupFolder = this.getGroupFolder();
+    if (groupFolder) {
+      deleteSession(groupFolder);
+      this.opts.onSessionClear?.(groupFolder);
+    }
+    this.cumulativeTokens = { input: 0, output: 0 };
+    this.oldestLoadedTimestamp = undefined;
+    const chatLog = this.app?.adapter.getActiveChatLog();
+    chatLog?.clearAll();
+    this.app?.channelBar.clearStatusInfo();
+    // Re-show model after clearing
+    const modelId = (groupFolder ? getModelConfig(groupFolder) : undefined) ?? DEFAULT_MODEL;
+    const displayModel = MODEL_DISPLAY_NAMES[modelId] ?? modelId;
+    this.app?.updateStatus({ model: displayModel });
+    this.app?.adapter.renderSystemMessage('TUI', 'Context cleared.');
+    this.app?.tui.requestRender();
+    logger.info({ groupFolder }, 'TUI /clear executed');
+  }
+
+  private handleModel(args: string) {
+    const groupFolder = this.getGroupFolder();
+    if (!args) {
+      // Show current model
+      const modelId = (groupFolder ? getModelConfig(groupFolder) : undefined) ?? DEFAULT_MODEL;
+      const displayModel = MODEL_DISPLAY_NAMES[modelId] ?? modelId;
+      const available = Object.keys(MODEL_SHORT_NAMES).filter((k) => !k.includes('-')).join(', ');
+      this.app?.adapter.renderSystemMessage('TUI', `Current model: ${displayModel}\nAvailable: ${available}`);
+      this.app?.tui.requestRender();
+      return;
+    }
+
+    // Resolve model name
+    const modelId = MODEL_SHORT_NAMES[args] ?? args;
+    if (!groupFolder) {
+      this.app?.adapter.renderSystemMessage('TUI', 'No group folder found.');
+      this.app?.tui.requestRender();
+      return;
+    }
+
+    setModelConfig(groupFolder, modelId);
+    const displayModel = MODEL_DISPLAY_NAMES[modelId] ?? modelId;
+    this.app?.updateStatus({ model: displayModel });
+    this.app?.adapter.renderSystemMessage('TUI', `Model set to: ${displayModel}`);
+    this.app?.tui.requestRender();
+    logger.info({ groupFolder, modelId, displayModel }, 'TUI /model set');
+  }
+
+  // --- History loading ---
+
+  private loadInitialHistory() {
+    const messages = getRecentMessages(this.jid, 20);
+    if (messages.length === 0) return;
+
+    // Messages come newest-first from DB, reverse to oldest-first for display
+    messages.reverse();
+    this.oldestLoadedTimestamp = messages[0].timestamp;
+
+    const chatLog = this.app?.adapter.getActiveChatLog();
+    if (!chatLog) return;
+
+    chatLog.prependHistory(
+      messages.map((m) => ({
+        role: m.is_bot_message ? 'assistant' as const : 'user' as const,
+        content: m.is_bot_message ? m.content : `${m.sender_name}: ${m.content}`,
+      })),
+    );
+    this.app?.tui.requestRender();
+    logger.info({ count: messages.length }, 'TUI initial history loaded');
+  }
+
+  private loadMoreHistory() {
+    if (!this.oldestLoadedTimestamp) return;
+
+    const messages = getRecentMessages(this.jid, 20, this.oldestLoadedTimestamp);
+    if (messages.length === 0) {
+      this.app?.adapter.renderSystemMessage('TUI', 'No more history.');
+      this.app?.tui.requestRender();
+      return;
+    }
+
+    // Reverse to oldest-first
+    messages.reverse();
+    this.oldestLoadedTimestamp = messages[0].timestamp;
+
+    const chatLog = this.app?.adapter.getActiveChatLog();
+    if (!chatLog) return;
+
+    chatLog.prependHistory(
+      messages.map((m) => ({
+        role: m.is_bot_message ? 'assistant' as const : 'user' as const,
+        content: m.is_bot_message ? m.content : `${m.sender_name}: ${m.content}`,
+      })),
+    );
+    this.app?.tui.requestRender();
+    logger.info({ count: messages.length }, 'TUI loaded more history');
+  }
+
+  // --- Token tracking ---
+
+  /**
+   * Update the cumulative token counters and refresh the status line.
+   * Called by the host after each agent response.
+   */
+  updateTokenUsage(inputTokens: number, outputTokens: number, modelUsed?: string) {
+    this.cumulativeTokens.input += inputTokens;
+    this.cumulativeTokens.output += outputTokens;
+    const info: { model?: string; inputTokens: number; outputTokens: number } = {
+      inputTokens: this.cumulativeTokens.input,
+      outputTokens: this.cumulativeTokens.output,
+    };
+    if (modelUsed) {
+      info.model = MODEL_DISPLAY_NAMES[modelUsed] ?? modelUsed;
+    }
+    this.app?.updateStatus(info);
+    this.app?.tui.requestRender();
+  }
+
+  /**
+   * Get the current model ID for this TUI group (for passing to container).
+   */
+  getModel(): string {
+    const groupFolder = this.getGroupFolder();
+    return (groupFolder ? getModelConfig(groupFolder) : undefined) ?? DEFAULT_MODEL;
+  }
+
+  // --- Helpers ---
+
+  private getGroupFolder(): string | undefined {
+    const groups = this.opts.registeredGroups();
+    return groups[this.jid]?.folder;
   }
 
   /** Map channel names to short display labels for the channel bar. */

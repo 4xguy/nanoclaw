@@ -6,8 +6,13 @@ export class CustomEditor extends Editor {
   onCtrlD?: () => void;
   onShiftTab?: () => void;
   onAltEnter?: () => void;
+  onPageUp?: () => void;
 
   handleInput(data: string): void {
+    if (matchesKey(data, Key.pageUp) && this.onPageUp) {
+      this.onPageUp();
+      return;
+    }
     if (matchesKey(data, Key.alt('enter')) && this.onAltEnter) {
       this.onAltEnter();
       return;

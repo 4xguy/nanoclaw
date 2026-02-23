@@ -4,6 +4,7 @@ import path from 'path';
 import {
   ASSISTANT_NAME,
   DATA_DIR,
+  DEFAULT_MODEL,
   IDLE_TIMEOUT,
   MAIN_GROUP_FOLDER,
   POLL_INTERVAL,
@@ -26,6 +27,7 @@ import {
   getAllSessions,
   getAllTasks,
   getMessagesSince,
+  getModelConfig,
   getNewMessages,
   getRouterState,
   initDatabase,
@@ -201,6 +203,15 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
       resetIdleTimer();
     }
 
+    // Forward token usage to TUI status line
+    if (tuiChannel && chatJid.startsWith('tui:') && result.tokenUsage) {
+      tuiChannel.updateTokenUsage(
+        result.tokenUsage.inputTokens,
+        result.tokenUsage.outputTokens,
+        result.modelUsed,
+      );
+    }
+
     if (result.status === 'error') {
       hadError = true;
     }
@@ -271,6 +282,9 @@ async function runAgent(
       }
     : undefined;
 
+  // Load per-group model config (falls back to DEFAULT_MODEL)
+  const model = getModelConfig(group.folder) ?? DEFAULT_MODEL;
+
   try {
     const output = await runContainerAgent(
       group,
@@ -280,6 +294,7 @@ async function runAgent(
         groupFolder: group.folder,
         chatJid,
         isMain,
+        model,
       },
       (proc, containerName) => queue.registerProcess(chatJid, proc, containerName, group.folder),
       wrappedOnOutput,
@@ -470,7 +485,13 @@ export async function main(): Promise<void> {
         requiresTrigger: false,
       });
     }
-    tuiChannel = new TuiChannel({ ...channelOpts, allChats: getAllChats });
+    tuiChannel = new TuiChannel({
+      ...channelOpts,
+      allChats: getAllChats,
+      onSessionClear: (groupFolder: string) => {
+        delete sessions[groupFolder];
+      },
+    });
     channels.push(tuiChannel);
     await tuiChannel.connect();
 

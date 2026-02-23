@@ -1,6 +1,6 @@
 skill: tui
-version: 1.0.0
-description: "Terminal UI channel with multi-channel switching via pi-tui"
+version: 2.0.0
+description: "Terminal UI channel with slash commands, model selection, token tracking, history, and multi-channel switching via pi-tui"
 core_version: 0.1.0
 adds:
   - src/channels/tui.ts
@@ -20,6 +20,9 @@ modifies:
   - src/config.ts
   - src/logger.ts
   - src/types.ts
+  - src/db.ts
+  - src/container-runner.ts
+  - container/agent-runner/src/index.ts
 structured:
   npm_dependencies:
     "@mariozechner/pi-tui": "0.54.0"

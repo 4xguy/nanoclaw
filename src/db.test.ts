@@ -3,11 +3,17 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import {
   _initTestDatabase,
   createTask,
+  deleteSession,
   deleteTask,
   getAllChats,
+  getAllSessions,
   getMessagesSince,
+  getModelConfig,
   getNewMessages,
+  getRecentMessages,
   getTaskById,
+  setModelConfig,
+  setSession,
   storeChatMetadata,
   storeMessage,
   updateTask,
@@ -324,5 +330,79 @@ describe('task CRUD', () => {
 
     deleteTask('task-3');
     expect(getTaskById('task-3')).toBeUndefined();
+  });
+});
+
+// --- deleteSession ---
+
+describe('deleteSession', () => {
+  it('deletes a session', () => {
+    setSession('test-group', 'session-123');
+    expect(getAllSessions()['test-group']).toBe('session-123');
+    deleteSession('test-group');
+    expect(getAllSessions()['test-group']).toBeUndefined();
+  });
+
+  it('is a no-op for non-existent session', () => {
+    deleteSession('nonexistent');
+    // Should not throw
+  });
+});
+
+// --- model config ---
+
+describe('model config', () => {
+  it('stores and retrieves model config', () => {
+    setModelConfig('test-group', 'claude-opus-4-6');
+    expect(getModelConfig('test-group')).toBe('claude-opus-4-6');
+  });
+
+  it('returns undefined for non-existent config', () => {
+    expect(getModelConfig('nonexistent')).toBeUndefined();
+  });
+
+  it('overwrites existing config', () => {
+    setModelConfig('test-group', 'claude-sonnet-4-6');
+    setModelConfig('test-group', 'claude-opus-4-6');
+    expect(getModelConfig('test-group')).toBe('claude-opus-4-6');
+  });
+});
+
+// --- getRecentMessages ---
+
+describe('getRecentMessages', () => {
+  beforeEach(() => {
+    storeChatMetadata('group@g.us', '2024-01-01T00:00:00.000Z');
+    for (let i = 1; i <= 30; i++) {
+      store({
+        id: `msg-${i}`,
+        chat_jid: 'group@g.us',
+        sender: 'user@s.whatsapp.net',
+        sender_name: 'User',
+        content: `message ${i}`,
+        timestamp: `2024-01-01T00:00:${i.toString().padStart(2, '0')}.000Z`,
+      });
+    }
+  });
+
+  it('returns the most recent N messages', () => {
+    const msgs = getRecentMessages('group@g.us', 5);
+    expect(msgs).toHaveLength(5);
+    // Newest first
+    expect(msgs[0].content).toBe('message 30');
+    expect(msgs[4].content).toBe('message 26');
+  });
+
+  it('returns messages before a given timestamp', () => {
+    const msgs = getRecentMessages('group@g.us', 5, '2024-01-01T00:00:10.000Z');
+    expect(msgs).toHaveLength(5);
+    // Messages 9, 8, 7, 6, 5 (before timestamp 10, newest first)
+    expect(msgs[0].content).toBe('message 9');
+    expect(msgs[4].content).toBe('message 5');
+  });
+
+  it('returns empty for unknown chat', () => {
+    const msgs = getRecentMessages('unknown@g.us', 20);
+    expect(msgs).toHaveLength(0);
   });
 });

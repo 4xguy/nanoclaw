@@ -5,7 +5,7 @@ import {
   Text,
   TUI,
 } from '@mariozechner/pi-tui';
-import { ChannelBar } from './channel-bar.js';
+import { ChannelBar, StatusInfo } from './channel-bar.js';
 import { ChatLog } from './components/chat-log.js';
 import { CustomEditor } from './components/custom-editor.js';
 import { TuiAdapter } from './tui-adapter.js';
@@ -16,6 +16,10 @@ export interface TuiAppOpts {
   onUserMessage: (activeChannel: string, text: string) => void;
   /** Called when user requests exit (Ctrl+D or double Ctrl+C). */
   onExit: () => void;
+  /** Called when user types a /command on the TUI channel. */
+  onSlashCommand?: (command: string, args: string) => void;
+  /** Called when user presses PageUp on the TUI channel. */
+  onPageUp?: () => void;
   /** Channel name for this TUI session. */
   channelName: string;
 }
@@ -24,10 +28,12 @@ export interface TuiApp {
   adapter: TuiAdapter;
   tui: TUI;
   editor: CustomEditor;
+  channelBar: ChannelBar;
   start: () => void;
   stop: () => void;
   setTyping: (isTyping: boolean) => void;
   updateHeader: (text: string) => void;
+  updateStatus: (info: StatusInfo) => void;
 }
 
 /**
@@ -95,6 +101,17 @@ export function createTuiApp(opts: TuiAppOpts): TuiApp {
     const value = text.trim();
     if (!value) return;
     editor.setText('');
+
+    // Intercept slash commands on the TUI channel only
+    if (value.startsWith('/') && adapter.getActiveChannelName() === opts.channelName && opts.onSlashCommand) {
+      const spaceIdx = value.indexOf(' ');
+      const command = spaceIdx === -1 ? value.slice(1) : value.slice(1, spaceIdx);
+      const args = spaceIdx === -1 ? '' : value.slice(spaceIdx + 1).trim();
+      opts.onSlashCommand(command, args);
+      tui.requestRender();
+      return;
+    }
+
     // Show user message in active channel's log
     const activeLog = adapter.getActiveChatLog();
     if (activeLog) {
@@ -102,6 +119,14 @@ export function createTuiApp(opts: TuiAppOpts): TuiApp {
     }
     opts.onUserMessage(adapter.getActiveChannelName(), value);
     tui.requestRender();
+  };
+
+  // PageUp: load more history (TUI channel only)
+  editor.onPageUp = () => {
+    if (adapter.getActiveChannelName() === opts.channelName && opts.onPageUp) {
+      opts.onPageUp();
+      tui.requestRender();
+    }
   };
 
   // Shift+Tab: cycle channels
@@ -164,6 +189,7 @@ export function createTuiApp(opts: TuiAppOpts): TuiApp {
     adapter,
     tui,
     editor,
+    channelBar,
     start: () => tui.start(),
     stop: () => {
       if (loader) loader.stop();
@@ -172,6 +198,10 @@ export function createTuiApp(opts: TuiAppOpts): TuiApp {
     setTyping,
     updateHeader: (text: string) => {
       updateHeader(text);
+      tui.requestRender();
+    },
+    updateStatus: (info: StatusInfo) => {
+      channelBar.setStatusInfo(info);
       tui.requestRender();
     },
   };

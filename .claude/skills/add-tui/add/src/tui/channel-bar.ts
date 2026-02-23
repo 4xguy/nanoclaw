@@ -7,13 +7,21 @@ export interface ChannelTab {
   unread: number;
 }
 
+export interface StatusInfo {
+  model?: string;
+  inputTokens?: number;
+  outputTokens?: number;
+}
+
 /**
- * Status line showing all active channels with unread counts.
+ * Status line showing all active channels with unread counts,
+ * plus model name and token usage on the right.
  * Renders below the editor in the TUI layout.
  */
 export class ChannelBar extends Container {
   private label: Text;
   private tabs: ChannelTab[] = [];
+  private statusInfo: StatusInfo = {};
 
   constructor() {
     super();
@@ -54,8 +62,21 @@ export class ChannelBar extends Container {
     this.renderLabel();
   }
 
+  /** Update the model and token usage displayed in the status area. */
+  setStatusInfo(info: StatusInfo) {
+    this.statusInfo = { ...this.statusInfo, ...info };
+    this.renderLabel();
+  }
+
+  /** Reset status info (e.g., on /clear). */
+  clearStatusInfo() {
+    this.statusInfo = {};
+    this.renderLabel();
+  }
+
   private renderLabel() {
-    const parts = this.tabs.map((tab) => {
+    // Left side: channel tabs
+    const tabParts = this.tabs.map((tab) => {
       let label = tab.name.toUpperCase();
       if (tab.active) {
         label += '*';
@@ -65,6 +86,32 @@ export class ChannelBar extends Container {
       }
       return tab.active ? theme.accent(label) : theme.dim(label);
     });
-    this.label.setText(parts.join('  '));
+
+    const left = tabParts.join('  ');
+
+    // Right side: model + tokens
+    const rightParts: string[] = [];
+    if (this.statusInfo.model) {
+      rightParts.push(this.statusInfo.model);
+    }
+    if (this.statusInfo.inputTokens != null || this.statusInfo.outputTokens != null) {
+      const input = this.statusInfo.inputTokens ?? 0;
+      const output = this.statusInfo.outputTokens ?? 0;
+      rightParts.push(formatTokens(input + output));
+    }
+
+    if (rightParts.length > 0) {
+      const right = theme.dim(rightParts.join(' | '));
+      this.label.setText(`${left}  ${theme.dim('|')}  ${right}`);
+    } else {
+      this.label.setText(left);
+    }
   }
+}
+
+/** Format token count for display: 1234 -> '1.2k', 12345 -> '12k' */
+function formatTokens(count: number): string {
+  if (count < 1000) return `${count}`;
+  if (count < 10000) return `${(count / 1000).toFixed(1)}k`;
+  return `${Math.round(count / 1000)}k`;
 }
