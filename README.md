@@ -50,6 +50,7 @@ Then run `/setup`. Claude Code handles everything: dependencies, authentication,
 ## What It Supports
 
 - **WhatsApp I/O** - Message Claude from your phone
+- **Terminal UI** - Full chat interface in your terminal (`npm run tui`) with slash commands (`/clear`, `/model`), per-group model selection, token tracking, message history, and multi-channel switching
 - **Isolated group context** - Each group has its own `CLAUDE.md` memory, isolated filesystem, and runs in its own container sandbox with only that filesystem mounted
 - **Main channel** - Your private channel (self-chat) for admin control; every other group is completely isolated
 - **Scheduled tasks** - Recurring jobs that run Claude and can message you back
@@ -109,7 +110,7 @@ Skills we'd love to see:
 - `/setup-windows` - Windows via WSL2 + Docker
 
 **Session Management**
-- `/add-clear` - Add a `/clear` command that compacts the conversation (summarizes context while preserving critical information in the same session). Requires figuring out how to trigger compaction programmatically via the Claude Agent SDK.
+- Context compaction — programmatically trigger conversation compaction via the Claude Agent SDK (the TUI `/clear` command already handles full session reset)
 
 ## Requirements
 
@@ -121,7 +122,7 @@ Skills we'd love to see:
 ## Architecture
 
 ```
-WhatsApp (baileys) --> SQLite --> Polling loop --> Container (Claude Agent SDK) --> Response
+Channels (WhatsApp, TUI) --> SQLite --> Polling loop --> Container (Claude Agent SDK) --> Response
 ```
 
 Single Node.js process. Agents execute in isolated Linux containers with mounted directories. Per-group message queue with concurrency control. IPC via filesystem.

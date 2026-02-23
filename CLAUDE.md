@@ -24,10 +24,10 @@ npm run format:check # Check formatting
 ## Architecture
 
 ```
-WhatsApp (baileys) → SQLite → Polling loop → Docker container (Claude Agent SDK) → Response
+Channels (WhatsApp, TUI) → SQLite → Polling loop → Docker container (Claude Agent SDK) → Response
 ```
 
-**Host process** (`src/`): Connects to WhatsApp, stores messages in SQLite, polls for new messages, spawns Docker containers for each agent invocation, handles IPC, runs scheduled tasks.
+**Host process** (`src/`): Connects to channels (WhatsApp, TUI), stores messages in SQLite, polls for new messages, spawns Docker containers for each agent invocation, handles IPC, runs scheduled tasks.
 
 **Container** (`container/`): Runs Claude Agent SDK via `agent-runner`. Receives input as JSON on stdin (including secrets), outputs results wrapped in `---NANOCLAW_OUTPUT_START---` / `---NANOCLAW_OUTPUT_END---` markers. An MCP server (`ipc-mcp-stdio.ts`) inside the container provides tools for sending messages, scheduling tasks, and managing groups via IPC files.
 
@@ -39,6 +39,10 @@ WhatsApp (baileys) → SQLite → Polling loop → Docker container (Claude Agen
 |------|---------|
 | `src/index.ts` | Main orchestrator: state management, message loop, agent invocation |
 | `src/channels/whatsapp.ts` | WhatsApp connection via baileys, message send/receive |
+| `src/channels/tui.ts` | Terminal UI channel: slash commands, history, model selection, token tracking |
+| `src/tui/tui-app.ts` | TUI layout: header, chat log, editor, channel bar; slash command routing |
+| `src/tui/channel-bar.ts` | Status line: channel tabs + model/token display |
+| `src/tui/tui-adapter.ts` | Bridges Channel callbacks to per-channel ChatLog instances |
 | `src/container-runner.ts` | Builds volume mounts, spawns Docker containers, streams output |
 | `src/container-runtime.ts` | Container runtime abstraction (swap Docker/Apple Container here) |
 | `src/group-queue.ts` | Per-group queue with global concurrency limit (`MAX_CONCURRENT_CONTAINERS`) |
@@ -49,7 +53,7 @@ WhatsApp (baileys) → SQLite → Polling loop → Docker container (Claude Agen
 | `src/mount-security.ts` | Validates additional mounts against external allowlist |
 | `src/types.ts` | Shared TypeScript types (Channel, RegisteredGroup, NewMessage, etc.) |
 | `src/config.ts` | All configuration constants (reads from `.env` via `env.ts`) |
-| `container/agent-runner/src/index.ts` | Inside container: runs Claude Agent SDK, IPC message loop |
+| `container/agent-runner/src/index.ts` | Inside container: runs Claude Agent SDK, IPC message loop, model/token pass-through |
 | `container/agent-runner/src/ipc-mcp-stdio.ts` | MCP server providing `send_message`, `schedule_task`, etc. |
 
 ### Two Cursor Systems
@@ -72,6 +76,19 @@ Additional mounts validated against external allowlist at `~/.config/nanoclaw/mo
 ### Secrets Handling
 
 Secrets (`ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`) are read from `.env` at container spawn time and passed via stdin JSON — never written to disk or mounted as files. A `PreToolUse` hook strips them from Bash subprocess environments inside the container.
+
+### TUI Channel
+
+The Terminal UI (`npm run tui`) provides an interactive chat interface with these features:
+
+- **Slash commands** (TUI tab only): `/clear` resets session + context, `/model [name]` sets per-group model
+- **Model selection**: Per-group model stored in `model_config` DB table. Short names: `sonnet-4`, `opus-4`, `haiku-4.5`
+- **Token tracking**: Cumulative input+output tokens shown in status line, extracted from SDK results via agent-runner
+- **History**: Last 20 messages loaded on startup, PageUp loads 20 more (paginated by timestamp)
+- **Multi-channel**: Shift+Tab cycles channels (TUI, WA, TG). Each has its own ChatLog with unread counts
+- **Status line**: `TUI* WA | sonnet-4 | 12k` — active channel, model name, cumulative tokens
+
+Token flow: SDK result → agent-runner extracts usage → ContainerOutput.tokenUsage → host → TuiChannel.updateTokenUsage() → ChannelBar.setStatusInfo()
 
 ## Skills System
 

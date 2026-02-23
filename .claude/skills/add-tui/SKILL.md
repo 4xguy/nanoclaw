@@ -129,4 +129,33 @@ node -e "import('cli-highlight').then(() => console.log('ok'))"
 
 ## After Setup
 
-The TUI supports multi-channel switching with `Shift+Tab` when multiple channels are registered. Each channel appears in the channel bar at the top of the screen. This works across all registered groups — use the TUI as a unified inbox alongside your WhatsApp and Telegram channels.
+### Slash Commands
+
+The TUI supports slash commands on the TUI tab (not external channel tabs):
+
+| Command | Description |
+|---------|-------------|
+| `/clear` | Delete session from DB, clear chat, reset token counters. Starts fresh context. |
+| `/model` | Show current model and available short names |
+| `/model sonnet-4` | Set model to `claude-sonnet-4-6` for this group |
+| `/model opus-4` | Set model to `claude-opus-4-6` for this group |
+| `/model haiku-4.5` | Set model to `claude-haiku-4-5-20251001` for this group |
+
+Model selection is per-group and persists across sessions (stored in `model_config` DB table). Full SDK model IDs are also accepted.
+
+### Status Line
+
+The channel bar at the bottom shows: `TUI* WA | sonnet-4 | 12k`
+
+- Left side: channel tabs with active indicator (`*`) and unread counts
+- Right side: current model name and cumulative token usage for the session
+
+Token usage updates after each agent response and resets on `/clear`.
+
+### History
+
+On startup, the last 20 messages are loaded from the database. Press `PageUp` to load 20 more (paginated by timestamp). A separator line marks where history ends and the current session begins.
+
+### Multi-Channel Switching
+
+The TUI supports multi-channel switching with `Shift+Tab` when multiple channels are registered. Each channel appears in the channel bar at the bottom of the screen. This works across all registered groups — use the TUI as a unified inbox alongside your WhatsApp and Telegram channels.
